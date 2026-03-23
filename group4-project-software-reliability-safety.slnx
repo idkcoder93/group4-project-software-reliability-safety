@@ -1,0 +1,8 @@
+<Solution>
+  <Configurations>
+    <Platform Name="x64" />
+    <Platform Name="x86" />
+  </Configurations>
+  <Project Path="FOD-CLIENT/FOD-CLIENT.vcxproj" Id="f1713d95-5fab-42a9-896d-8df6e875eb4d" />
+  <Project Path="FOD-SERVER/FOD-SERVER.vcxproj" Id="f8a8d2cd-a419-41eb-aef5-7b3edebb4a86" />
+</Solution>
