@@ -60,6 +60,7 @@
   <ItemGroup>
     <Build Include="User.sql" />
     <Build Include="FODTable.sql" />
+    <Build Include="LogTable.sql" />
   </ItemGroup>
   <ItemGroup>
     <None Include="PostDeployment.sql" />

@@ -1,0 +1,7 @@
+﻿CREATE TABLE [dbo].[LogTable]
+(
+	[Id] INT IDENTITY(1,1) PRIMARY KEY,
+	message NVARCHAR(255) NOT NULL,
+	timestamp DATETIME NOT NULL,
+	level NVARCHAR(10) NOT NULL,
+)

@@ -1,42 +1,59 @@
 #include "DBHelper.h"
 #include "User.h"
 
-
+#include <functional>
 #include <fstream>
 #include <sstream>
 #include <string>
 
-
-bool User::authenticateUser(const std::string& inputUsername, const std::string& inputPassword, DBHelper& db)
+bool FODServer::User::authenticateUser(const std::string& inputUsername,
+    const std::string& inputPassword,
+    DBHelper& db)
 {
     SQLHDBC hDbc = db.getDbc();
-    if (!hDbc) return false;
+    if (!hDbc) {
+        return false;
+    }
 
     SQLHSTMT hStmt;
-    if (SQLAllocHandle(SQL_HANDLE_STMT, hDbc, &hStmt) != SQL_SUCCESS) return false;
+    if (SQLAllocHandle(SQL_HANDLE_STMT, hDbc, &hStmt) != SQL_SUCCESS) {
+        return false;
+    }
 
-    // Parameterized query is safer, but for now using string concatenation
-    std::string sql = "SELECT COUNT(*) FROM [User] WHERE Username = '" + inputUsername +
-        "' AND Password = '" + inputPassword + "'";
+    // type definition for preparing SQL 
+    SQLCHAR sql [] = "SELECT Password FROM [User] WHERE Username = ?";
 
-    if (SQLExecDirectA(hStmt, (SQLCHAR*)sql.c_str(), SQL_NTS) != SQL_SUCCESS) {
+    SQLPrepareA(hStmt, sql, SQL_NTS);
+    SQLBindParameter(hStmt, 1, SQL_PARAM_INPUT, SQL_C_CHAR, SQL_VARCHAR,
+        255, 0, (SQLPOINTER)inputUsername.c_str(), 0, NULL);
+
+    if (SQLExecute(hStmt) != SQL_SUCCESS) {
         SQLFreeHandle(SQL_HANDLE_STMT, hStmt);
         return false;
     }
 
-    // Fetch result
-    SQLINTEGER count = 0;
+    char storedHash[256] = { 0 };
+
     if (SQLFetch(hStmt) == SQL_SUCCESS) {
-        SQLGetData(hStmt, 1, SQL_C_SLONG, &count, 0, NULL);
+        SQLGetData(hStmt, 1, SQL_C_CHAR, storedHash, sizeof(storedHash), NULL);
+        SQLFreeHandle(SQL_HANDLE_STMT, hStmt);
+
+        // hash input password
+        std::hash<std::string> hasher;
+        size_t hashedInput = hasher(inputPassword);
+
+        // convert to string for comparison
+        std::string hashedInputStr = std::to_string(hashedInput);
+
+        return hashedInputStr == storedHash;
     }
 
     SQLFreeHandle(SQL_HANDLE_STMT, hStmt);
-
-    return count > 0; // return true if user exists
+    return false;
 }
 
 // client sends username & password delimiter separating them
-User User::parseClientLogin(const std::string& firstPacket) {
+FODServer::User FODServer::User::parseClientLogin(const std::string& firstPacket) {
     for (size_t i = 0; i < firstPacket.size(); ++i) {
         if (firstPacket[i] == ':') {
 			User client;
@@ -48,3 +65,4 @@ User User::parseClientLogin(const std::string& firstPacket) {
         }
 	}
 }
+

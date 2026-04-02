@@ -4,7 +4,7 @@
 #include <sstream>
 #include <string>
 
-std::string User::authenticateUser(const std::string& inputUsername, const std::string& inputPassword)
+std::string FOD::User::authenticateUser(const std::string& inputUsername, const std::string& inputPassword)
 {
 	return inputUsername + ":" + inputPassword;
 }

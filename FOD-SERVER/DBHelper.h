@@ -6,23 +6,26 @@
 #include <string>
 #include <iostream>
 
-class DBHelper {
-private:
-    SQLHENV hEnv = nullptr;
-    SQLHDBC hDbc = nullptr;
+namespace FODServer
+{
+    class DBHelper {
+    private:
+        SQLHENV hEnv = nullptr;
+        SQLHDBC hDbc = nullptr;
 
-public:
+    public:
 
-    // Open connection
-    bool openConnection(const std::string& connStr);
+        // Open connection
+        bool openConnection(const std::string& connStr);
 
-    // Close connection
-    void closeConnection();
+        // Close connection
+        void closeConnection();
 
-    // Save a FOD object
-    bool saveFOD(const FODHeader& record, const FODDescription& desc);
+        // Save a FOD object
+        bool saveFOD(const FODHeader& record, const FODDescription& desc);
 
-    // Getter for connection handle (optional)
-    SQLHDBC getDbc() const { return hDbc; }
-};
+        // Getter for connection handle (optional)
+        SQLHDBC getDbc() const { return hDbc; }
+    };
+}
 
