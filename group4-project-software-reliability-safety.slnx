@@ -6,6 +6,7 @@
   </Configurations>
   <Project Path="FOD-CLIENT/FOD-CLIENT.vcxproj" Id="f1713d95-5fab-42a9-896d-8df6e875eb4d" />
   <Project Path="FOD-SERVER/FOD-SERVER.vcxproj" Id="f8a8d2cd-a419-41eb-aef5-7b3edebb4a86" />
+  <Project Path="FOD-Test/FOD-Test.vcxproj" Id="01e4aa31-19e4-4caf-b753-2c6c6d9c3293" />
   <Project Path="FODDatabase/FODDatabase.sqlproj" Id="4069c95e-4bbe-48e1-8611-0ec4b7881081">
     <Platform Project="AnyCPU" />
     <Build />
