@@ -20,9 +20,11 @@
 
 namespace FODServer
 {
+    //Constants for server configuration
     constexpr auto DEFAULT_PORT = "27015";
+    constexpr std::size_t DEFAULT_BUFLEN = 512;
     constexpr auto DEFAULT_CONN_STR =
-        "DRIVER={ODBC Driver 18 for SQL Server};SERVER=RY-LEGION\\MSSQLSERVER01;DATABASE=FODDatabase;Trusted_Connection=Yes;TrustServerCertificate=Yes;";
+        "DRIVER={ODBC Driver 18 for SQL Server};SERVER=localhost;DATABASE=FODDatabase;Trusted_Connection=Yes;TrustServerCertificate=Yes;";
 }
 
 int main()
@@ -30,6 +32,7 @@ int main()
     
     using namespace FODServer;
 
+    // single point of exit for main
     int returnCode = 0;
 
     DBHelper db;
