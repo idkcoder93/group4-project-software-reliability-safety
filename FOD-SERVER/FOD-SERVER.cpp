@@ -24,22 +24,6 @@ namespace FODServer
         "DRIVER={ODBC Driver 18 for SQL Server};SERVER=localhost;DATABASE=FODDatabase;Trusted_Connection=Yes;TrustServerCertificate=Yes;";
 }
 
-// helpers so every call site discards return values intentionally
-namespace
-{
-    void safeWSACleanup()
-    {
-        (void)WSACleanup();
-    }
-
-    void safeClosesocket(SOCKET s)
-    {
-        if (s != INVALID_SOCKET)
-        {
-            (void)closesocket(s);
-        }
-    }
-}
 
 int main()
 {
@@ -109,7 +93,7 @@ int main()
         if (iResult != 0)
         {
             Logger::log("getaddrinfo failed with error: " + std::to_string(iResult), Logger::ERR);
-            safeWSACleanup();   // return handled in helper
+            (void)WSACleanup();   // return handled in helper
             returnCode = 1;
         }
     }
@@ -123,7 +107,7 @@ int main()
             Logger::log("socket failed with error: " + std::to_string(WSAGetLastError()), Logger::ERR);
             freeaddrinfo(result);
             result = nullptr;
-            safeWSACleanup();
+            (void)WSACleanup();
             returnCode = 1;
         }
     }
@@ -137,8 +121,8 @@ int main()
             Logger::log("bind failed with error: " + std::to_string(WSAGetLastError()), Logger::ERR);
             freeaddrinfo(result);
             result = nullptr;
-            safeClosesocket(ListenSocket);  // V2547: handled in helper
-            safeWSACleanup();
+            (void)closesocket(ListenSocket);  // handled in helper
+            (void)WSACleanup();
             returnCode = 1;
         }
     }
@@ -155,8 +139,8 @@ int main()
         if (iResult == SOCKET_ERROR)
         {
             Logger::log("listen failed with error: " + std::to_string(WSAGetLastError()), Logger::ERR);
-            safeClosesocket(ListenSocket);
-            safeWSACleanup();
+            (void)closesocket(ListenSocket);
+            (void)WSACleanup();
             returnCode = 1;
         }
     }
@@ -169,8 +153,8 @@ int main()
         if (ClientSocket == INVALID_SOCKET)
         {
             Logger::log("accept failed with error: " + std::to_string(WSAGetLastError()), Logger::ERR);
-            safeClosesocket(ListenSocket);
-            safeWSACleanup();
+            (void)closesocket(ListenSocket);
+            (void)WSACleanup();
             returnCode = 1;
         }
     }
@@ -215,9 +199,9 @@ int main()
     }
 
     // Cleanup — all return values handled through helpers
-    safeClosesocket(ClientSocket);
-    safeClosesocket(ListenSocket);
-    safeWSACleanup();
+    (void)closesocket(ClientSocket);
+    (void)closesocket(ListenSocket);
+    (void)WSACleanup();
 
     db.closeConnection();
 

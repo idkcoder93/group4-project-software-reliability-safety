@@ -2,67 +2,89 @@
 #include "User.h"
 
 #include <functional>
-#include <fstream>
-#include <sstream>
 #include <string>
+#include <vector>
+#include <array>
 
-bool FODServer::User::authenticateUser(const std::string& inputUsername,
-    const std::string& inputPassword,
-    DBHelper& db)
+namespace FODServer
 {
-    SQLHDBC hDbc = db.getDbc();
-    if (!hDbc) {
-        return false;
-    }
+    bool User::authenticateUser(const std::string& inputUsername,
+        const std::string& inputPassword,
+        DBHelper& db)
+    {
+        bool result = false; // single exit point
 
-    SQLHSTMT hStmt;
-    if (SQLAllocHandle(SQL_HANDLE_STMT, hDbc, &hStmt) != SQL_SUCCESS) {
-        return false;
-    }
+        SQLHDBC hDbc = db.getDbc();
+        SQLHSTMT hStmt = SQL_NULL_HSTMT;
 
-    // type definition for preparing SQL 
-    SQLCHAR sql [] = "SELECT Password FROM [User] WHERE Username = ?";
+        if ((hDbc != SQL_NULL_HDBC) &&
+            (SQLAllocHandle(SQL_HANDLE_STMT, hDbc, &hStmt) == SQL_SUCCESS))
+        {
+            // vector prevents sql string literal decay and add null terminator
+            const std::string sqlStr = "SELECT Password FROM [User] WHERE Username = ?";
+            std::vector<SQLCHAR> sql(sqlStr.begin(), sqlStr.end());
+            sql.push_back('\0');
 
-    SQLPrepareA(hStmt, sql, SQL_NTS);
-    SQLBindParameter(hStmt, 1, SQL_PARAM_INPUT, SQL_C_CHAR, SQL_VARCHAR,
-        255, 0, (SQLPOINTER)inputUsername.c_str(), 0, NULL);
+            const SQLRETURN prepRet = SQLPrepareA(hStmt, sql.data(), SQL_NTS);
 
-    if (SQLExecute(hStmt) != SQL_SUCCESS) {
-        SQLFreeHandle(SQL_HANDLE_STMT, hStmt);
-        return false;
-    }
+            // mutable buffer
+            std::vector<SQLCHAR> unameBuffer(inputUsername.begin(), inputUsername.end());
+            unameBuffer.push_back('\0');
 
-    char storedHash[256] = { 0 };
+            const SQLRETURN bindRet = SQLBindParameter(hStmt, 1, SQL_PARAM_INPUT,
+                SQL_C_CHAR, SQL_VARCHAR, 255, 0,
+                static_cast<SQLPOINTER>(unameBuffer.data()),
+                0, NULL);
 
-    if (SQLFetch(hStmt) == SQL_SUCCESS) {
-        SQLGetData(hStmt, 1, SQL_C_CHAR, storedHash, sizeof(storedHash), NULL);
-        SQLFreeHandle(SQL_HANDLE_STMT, hStmt);
+            if (SQL_SUCCEEDED(prepRet) && SQL_SUCCEEDED(bindRet) &&
+                (SQLExecute(hStmt) == SQL_SUCCESS))
+            {
+                if (SQLFetch(hStmt) == SQL_SUCCESS)
+                {
+                    // std::array + .data() prevents array decay
+                    std::array<SQLCHAR, 256> storedHash = {};
 
-        // hash input password
-        std::hash<std::string> hasher;
-        size_t hashedInput = hasher(inputPassword);
+                    // return value from SQLGetData complying with MISRA
+                    const SQLRETURN getData = SQLGetData(hStmt, 1, SQL_C_CHAR,
+                        storedHash.data(),
+                        static_cast<SQLLEN>(storedHash.size()),
+                        NULL);
 
-        // convert to string for comparison
-        std::string hashedInputStr = std::to_string(hashedInput);
+                    if (SQL_SUCCEEDED(getData))
+                    {
+                        const std::size_t hashedInput = std::hash<std::string>{}(inputPassword);
+                        const std::string hashedInputStr = std::to_string(hashedInput);
+                        const std::string storedHashStr(
+                            reinterpret_cast<const char*>(storedHash.data()));
 
-        return hashedInputStr == storedHash;
-    }
+                        result = (hashedInputStr == storedHashStr);
+                    }
+                }
+            }
 
-    SQLFreeHandle(SQL_HANDLE_STMT, hStmt);
-    return false;
-}
-
-// client sends username & password delimiter separating them
-FODServer::User FODServer::User::parseClientLogin(const std::string& firstPacket) {
-    for (size_t i = 0; i < firstPacket.size(); ++i) {
-        if (firstPacket[i] == ':') {
-			User client;
-            username = firstPacket.substr(0, i);
-            password = firstPacket.substr(i + 1);
-			client.username = username;
-			client.password = password;
-            return client;
+            // single SQLFreeHandle, always reached, return value discarded intentionally
+            // frees the sql handler
+            (void)SQLFreeHandle(SQL_HANDLE_STMT, hStmt);
         }
-	}
-}
 
+        return result;
+    }
+
+    // single exit, always returns a value
+    User User::parseClientLogin(const std::string& firstPacket)
+    {
+        User client;
+
+        for (std::size_t i = 0U; i < firstPacket.size(); ++i)
+        {
+            if (firstPacket[i] == ':')
+            {
+                client.username = firstPacket.substr(0U, i);
+                client.password = firstPacket.substr(i + 1U);
+                break;
+            }
+        }
+
+        return client;
+    }
+}

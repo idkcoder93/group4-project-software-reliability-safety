@@ -79,12 +79,14 @@ namespace FODServer
                 // Convert timestamp
                 std::time_t t_c = std::chrono::system_clock::to_time_t(record.timestamp);
                 std::tm timeStruct{};
-                if (localtime_s(&timeStruct, &t_c) == 0) // safe version no define
+                if (localtime_s(&timeStruct, &t_c) == 0)
                 {
-                    char timeStr[20] = { 0 }; // YYYY-MM-DD HH:MM:SS
-                    if (std::strftime(timeStr, sizeof(timeStr), "%Y-%m-%d %H:%M:%S", &timeStruct) != 0)
+                    // use of vector for no decay to a pointer
+                    std::string timeStr(20, '\0');
+                    if (std::strftime(timeStr.data(), timeStr.size(), "%Y-%m-%d %H:%M:%S", &timeStruct) != 0)
                     {
-                        // Build SQL safely
+                        timeStr = timeStr.c_str(); // convert back c style string
+
                         std::stringstream ss;
                         ss << "INSERT INTO FODRecords "
                             << "(PacketTypeId,HazardType,LocationZone,SeverityLevel,OfficerName,Timestamp,DescLength,CheckSum) VALUES ("
@@ -98,7 +100,6 @@ namespace FODServer
 
                         std::string sql = ss.str();
 
-                        // Use mutable vector for SQL string
                         std::vector<SQLCHAR> sqlBuffer(sql.begin(), sql.end());
                         sqlBuffer.push_back('\0');
 
@@ -109,10 +110,6 @@ namespace FODServer
                         }
                     }
                 }
-
-                SQLRETURN freeRet = SQLFreeHandle(SQL_HANDLE_STMT, hStmt); (void)freeRet;
-            }
-        }
 
         return success;
     }
