@@ -18,7 +18,7 @@ namespace FODServer
         if (ret == SQL_SUCCESS)
         {
             ret = SQLSetEnvAttr(hEnv, SQL_ATTR_ODBC_VERSION,
-				reinterpret_cast<SQLPOINTER>(SQL_OV_ODBC3), 0); // MISRA compliant type-casting in cpp
+                reinterpret_cast<SQLPOINTER>(SQL_OV_ODBC3), 0); // MISRA compliant type-casting in cpp
             if (ret == SQL_SUCCESS)
             {
                 ret = SQLAllocHandle(SQL_HANDLE_DBC, hEnv, &hDbc);
@@ -111,7 +111,9 @@ namespace FODServer
                     }
                 }
 
-        return success;
-    }
+                return success;
+            }
 
+        }
+    }
 }
