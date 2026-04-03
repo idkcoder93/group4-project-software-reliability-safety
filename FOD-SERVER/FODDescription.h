@@ -1,8 +1,12 @@
 #pragma once
+#include <string>
 
-struct FODDescription {
-	int packetTypeId;
-	char* description;
-	int checksum;
-};
-
+namespace FODServer
+{
+    struct FODDescription
+    {
+        int packetTypeId;
+        char* description; // dynamic alloc. requirement
+        int checksum;
+    };
+}

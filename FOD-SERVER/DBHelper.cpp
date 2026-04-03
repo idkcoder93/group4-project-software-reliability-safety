@@ -1,79 +1,117 @@
-#define _CRT_SECURE_NO_WARNINGS
-
 #include "DBHelper.h"
 #include "FODHeader.h"
 #include <chrono>
 #include <ctime>
 #include <sstream>
+#include <vector>
 #include <iostream>
 
+namespace FODServer
+{
 
-// Open connection
-bool DBHelper::openConnection(const std::string& connStr) {
-    // Allocate environment handle
-    if (SQLAllocHandle(SQL_HANDLE_ENV, SQL_NULL_HANDLE, &hEnv) != SQL_SUCCESS) return false;
-    if (SQLSetEnvAttr(hEnv, SQL_ATTR_ODBC_VERSION, (void*)SQL_OV_ODBC3, 0) != SQL_SUCCESS) return false;
+    // Open connection
+    bool DBHelper::openConnection(const std::string& connStr)
+    {
+        bool success = false; // single exit point MISRA
+        SQLRETURN ret = SQLAllocHandle(SQL_HANDLE_ENV, SQL_NULL_HANDLE, &hEnv);
 
-    // Allocate connection handle
-    if (SQLAllocHandle(SQL_HANDLE_DBC, hEnv, &hDbc) != SQL_SUCCESS) return false;
+        if (ret == SQL_SUCCESS)
+        {
+            ret = SQLSetEnvAttr(hEnv, SQL_ATTR_ODBC_VERSION,
+				reinterpret_cast<SQLPOINTER>(SQL_OV_ODBC3), 0); // MISRA compliant type-casting in cpp
+            if (ret == SQL_SUCCESS)
+            {
+                ret = SQLAllocHandle(SQL_HANDLE_DBC, hEnv, &hDbc);
+                if (ret == SQL_SUCCESS)
+                {
+                    // a buffer for connStr with appr. type-casting
+                    std::vector<SQLCHAR> connBuffer(connStr.begin(), connStr.end());
+                    connBuffer.push_back('\0'); // null-terminate c-style for argument
 
-    // Connect
-    SQLRETURN ret = SQLDriverConnectA(
-        hDbc,
-        nullptr,
-        (SQLCHAR*)connStr.c_str(),
-        SQL_NTS,
-        nullptr,
-        0,
-        nullptr,
-        SQL_DRIVER_NOPROMPT
-    );
+                    ret = SQLDriverConnectA(
+                        hDbc,
+                        nullptr,
+                        connBuffer.data(),
+                        SQL_NTS,
+                        nullptr,
+                        0,
+                        nullptr,
+                        SQL_DRIVER_NOPROMPT);
 
-    return SQL_SUCCEEDED(ret);
-}
+                    if (SQL_SUCCEEDED(ret))
+                    {
+                        success = true;
+                    }
+                }
+            }
+        }
 
-// Close connection
-void DBHelper::closeConnection() {
-    if (hDbc) {
-        SQLDisconnect(hDbc);
-        SQLFreeHandle(SQL_HANDLE_DBC, hDbc);
-        hDbc = nullptr;
+        return success;
     }
-    if (hEnv) {
-        SQLFreeHandle(SQL_HANDLE_ENV, hEnv);
-        hEnv = nullptr;
+
+    // Close connection
+    void DBHelper::closeConnection()
+    {
+        SQLRETURN ret;
+        if (hDbc != nullptr)
+        {
+            ret = SQLDisconnect(hDbc); (void)ret;
+            ret = SQLFreeHandle(SQL_HANDLE_DBC, hDbc); (void)ret;
+            hDbc = nullptr;
+        }
+        if (hEnv != nullptr)
+        {
+            ret = SQLFreeHandle(SQL_HANDLE_ENV, hEnv); (void)ret;
+            hEnv = nullptr;
+        }
     }
-}
 
-// adding FOD record to database
-bool DBHelper::saveFOD(const FODHeader& record, const FODDescription& desc) {
-    if (!hDbc) return false;
+    // Adding FOD record to database
+    bool DBHelper::saveFOD(const FODHeader& record, const FODDescription& desc)
+    {
+        bool success = false; // single exit point
 
-    SQLHSTMT hStmt;
-    if (SQLAllocHandle(SQL_HANDLE_STMT, hDbc, &hStmt) != SQL_SUCCESS) return false;
+        if (hDbc != nullptr)
+        {
+            SQLHSTMT hStmt;
+            if (SQLAllocHandle(SQL_HANDLE_STMT, hDbc, &hStmt) == SQL_SUCCESS)
+            {
+                // Convert timestamp
+                std::time_t t_c = std::chrono::system_clock::to_time_t(record.timestamp);
+                std::tm timeStruct{};
+                if (localtime_s(&timeStruct, &t_c) == 0)
+                {
+                    // use of vector for no decay to a pointer
+                    std::string timeStr(20, '\0');
+                    if (std::strftime(timeStr.data(), timeStr.size(), "%Y-%m-%d %H:%M:%S", &timeStruct) != 0)
+                    {
+                        timeStr = timeStr.c_str(); // convert back c style string
 
-    // Convert timestamp
-    std::time_t t_c = std::chrono::system_clock::to_time_t(record.timestamp);
-    char timeStr[20]; // YYYY-MM-DD HH:MM:SS
-    std::strftime(timeStr, sizeof(timeStr), "%Y-%m-%d %H:%M:%S", std::localtime(&t_c));
+                        std::stringstream ss;
+                        ss << "INSERT INTO FODRecords "
+                            << "(PacketTypeId,HazardType,LocationZone,SeverityLevel,OfficerName,Timestamp,DescLength,CheckSum) VALUES ("
+                            << record.packetTypeId << ", '"
+                            << record.hazardType << "', '"
+                            << record.locationZone << "', "
+                            << record.severityLevel << ", '"
+                            << record.officerName << "', '"
+                            << timeStr << "', "
+                            << desc.description << ");";
 
-    // Build SQL
-    std::stringstream ss;
-    ss << "INSERT INTO FODRecords "
-        << "(PacketTypeId,HazardType,LocationZone,SeverityLevel,OfficerName,Timestamp,DescLength,CheckSum) VALUES ("
-        << record.packetTypeId << ", '"
-        << record.hazardType << "', '"
-        << record.locationZone << "', "
-        << record.severityLevel << ", '"
-        << record.officerName << "', '"
-        << timeStr << "', "
-        << desc.description << ");";
+                        std::string sql = ss.str();
 
-    std::string sql = ss.str();
+                        std::vector<SQLCHAR> sqlBuffer(sql.begin(), sql.end());
+                        sqlBuffer.push_back('\0');
 
-    SQLRETURN ret = SQLExecDirectA(hStmt, (SQLCHAR*)sql.c_str(), SQL_NTS);
+                        SQLRETURN ret = SQLExecDirectA(hStmt, sqlBuffer.data(), SQL_NTS);
+                        if (SQL_SUCCEEDED(ret))
+                        {
+                            success = true;
+                        }
+                    }
+                }
 
-    SQLFreeHandle(SQL_HANDLE_STMT, hStmt);
+        return success;
+    }
 
-    return SQL_SUCCEEDED(ret);
 }
