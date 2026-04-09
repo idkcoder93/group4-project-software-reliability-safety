@@ -35,7 +35,7 @@ namespace FODServer
 // named instance, set an environment variable on your machine:
 //
 // use this command in an admin command prompt, replacing YOUR-PC\INSTANCE with your server name:
-// setx FOD_DB_CONN "DRIVER={ODBC Driver 18 for SQL Server};SERVER=YOUR-PC\INSTANCE;DATABASE=FODDatabase;Trusted_Connection=Yes;TrustServerCertificate=Yes;"
+// setx FOD_DB_CONN "DRIVER={ODBC Driver 18 for SQL Server};SERVER=localhost;DATABASE=FODDatabase;Trusted_Connection=Yes;TrustServerCertificate=Yes;"
 //
 // Then restart Visual Studio so it picks up the new variable.
 // ------------------------------------------------------------------
@@ -59,9 +59,7 @@ namespace FODServer
         }
         else
         {
-            result = "DRIVER={ODBC Driver 18 for SQL Server};SERVER=localhost;"
-                "DATABASE=FODDatabase;Trusted_Connection=Yes;"
-                "TrustServerCertificate=Yes;";
+            result = "DRIVER={ODBC Driver 18 for SQL Server};SERVER=localhost;DATABASE=FODDatabase;Trusted_Connection=Yes;TrustServerCertificate=Yes;";
         }
 
         return result;

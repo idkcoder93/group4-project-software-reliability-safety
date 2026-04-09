@@ -12,4 +12,5 @@
     <Build />
     <Deploy />
   </Project>
+  <Project Path="UnitTests/UnitTests.vcxproj" />
 </Solution>

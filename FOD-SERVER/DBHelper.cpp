@@ -6,6 +6,7 @@
 #include <vector>
 #include <iostream>
 #include <cstring>
+#include <array>
 
 namespace FODServer
 {
@@ -63,6 +64,21 @@ namespace FODServer
                     if (SQL_SUCCEEDED(ret))
                     {
                         success = true;
+                    }
+                    else
+                    {
+                        // print the real ODBC error
+                        SQLCHAR sqlState[6] = {};
+                        SQLCHAR message[512] = {};
+                        SQLINTEGER nativeErr = 0;
+                        SQLSMALLINT msgLen = 0;
+
+                        SQLGetDiagRecA(SQL_HANDLE_DBC, hDbc, 1,
+                            sqlState, &nativeErr, message, sizeof(message), &msgLen);
+
+                        std::cerr << "ODBC SQLState: " << sqlState << "\n"
+                            << "ODBC Error:    " << message << "\n"
+                            << "Native Error:  " << nativeErr << "\n";
                     }
                 }
             }
