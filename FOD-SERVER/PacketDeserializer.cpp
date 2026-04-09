@@ -1,99 +1,139 @@
-
 #include "PacketDeserializer.h"
-#include "FODHeader.h"
-#include "FODDescription.h"
 #include <cstring>
 #include <string>
+#include <array>
 #include <chrono>
 #include <ctime>
 
-using namespace FODServer;
-
-//private helpers
-
-int PacketDeserializer::computeChecksum(const char* data, int length)
+namespace FODServer
 {
-    int sum = 0;
-    for (int i = 0; i < length; ++i)
+    // private helpers
+
+    int PacketDeserializer::computeChecksum(const char* data, int length)
     {
-        sum += static_cast<unsigned char>(data[i]);
+        int sum = 0;
+        for (int i = 0; i < length; ++i)
+        {
+            sum += static_cast<int>(static_cast<unsigned char>(data[i]));
+        }
+        return sum;
     }
-    return sum;
-}
 
-static bool readInt(const char* data, int len, int& offset, int& out)
-{
-    if (offset + 4 > len) { return false; }
-    memcpy(&out, data + offset, 4);
-    offset += 4;
-    return true;
-}
+    static bool readInt(const char* data, int len, int& offset, int& out)
+    {
+        bool success = false;
+        if ((offset + 4) <= len)
+        {
+            (void)memcpy(&out, &data[offset], 4);
+            offset += 4;
+            success = true;
+        }
+        return success;
+    }
 
-static bool readString(const char* data, int len, int& offset, std::string& out)
-{
-    int strLen = 0;
-    if (!readInt(data, len, offset, strLen)) { return false; }
-    if (strLen < 0 || offset + strLen > len) { return false; }
-    out.assign(data + offset, static_cast<size_t>(strLen));
-    offset += strLen;
-    return true;
-}
+    static bool readString(const char* data, int len, int& offset, std::string& out)
+    {
+        bool success = false;
+        int strLen = 0;
+        if (readInt(data, len, offset, strLen))
+        {
+            if ((strLen >= 0) && ((offset + strLen) <= len))
+            {
+                out.assign(&data[offset], static_cast<size_t>(strLen));
+                offset += strLen;
+                success = true;
+            }
+        }
+        return success;
+    }
 
-//public
+    // public
 
-bool PacketDeserializer::deserializeHeader(const char* data, int len, FODHeader& h)
-{
-    int offset = 0;
-    int tmp = 0;
+    bool PacketDeserializer::deserializeHeader(const char* data, int len, FODHeader& h)
+    {
+        bool success = true;
+        int offset = 0;
+        int tmp = 0;
 
-    if (!readInt(data, len, offset, h.packetTypeId)) { return false; }
-    if (!readInt(data, len, offset, tmp)) { return false; }
-    h.hazardType = static_cast<HazardType>(tmp);
+        if (success) { success = readInt(data, len, offset, h.packetTypeId); }
+        if (success) { success = readInt(data, len, offset, tmp); }
+        if (success) { h.hazardType = static_cast<HazardType>(tmp); }
+        if (success) { success = readString(data, len, offset, h.locationZone); }
+        if (success) { success = readInt(data, len, offset, h.severityLevel); }
+        if (success) { success = readString(data, len, offset, h.officerName); }
 
-    if (!readString(data, len, offset, h.locationZone)) { return false; }
-    if (!readInt(data, len, offset, h.severityLevel)) { return false; }
-    if (!readString(data, len, offset, h.officerName)) { return false; }
+        if (success && ((offset + 8) <= len))
+        {
+            std::time_t t = 0;
+            (void)memcpy(&t, &data[offset], sizeof(t));
+            offset += 8;
+            h.timestamp = std::chrono::system_clock::from_time_t(t);
+        }
+        else
+        {
+            success = false;
+        }
 
-    if (offset + 8 > len) { return false; }
-    std::time_t t = 0;
-    memcpy(&t, data + offset, sizeof(t));
-    offset += 8;
-    h.timestamp = std::chrono::system_clock::from_time_t(t);
+        if (success) { success = readInt(data, len, offset, h.descLength); }
+        if (success) { success = readInt(data, len, offset, h.checkSum); }
 
-    if (!readInt(data, len, offset, h.descLength)) { return false; }
-    if (!readInt(data, len, offset, h.checkSum)) { return false; }
+        return success;
+    }
 
-    return true;
-}
+    bool PacketDeserializer::deserializeDescription(const char* data, int len, FODDescription& d)
+    {
+        bool success = false;
+        int offset = 0;
+        int descLen = 0;
 
-bool PacketDeserializer::deserializeDescription(const char* data, int len, FODDescription& d)
-{
-    int offset = 0;
-    int descLen = 0;
+        if (readInt(data, len, offset, d.packetTypeId) &&
+            readInt(data, len, offset, d.checksum) &&
+            readInt(data, len, offset, descLen))
+        {
+            if ((descLen >= 0) && ((offset + descLen) <= len))
+            {
+                // MISRA deviation: new[] required for dynamic char* (REQ-PKT-020)
+                d.description = new char[static_cast<size_t>(descLen) + 1U];
+                (void)memcpy(d.description, &data[offset], static_cast<size_t>(descLen));
+                d.description[descLen] = '\0';
+                success = true;
+            }
+        }
 
-    if (!readInt(data, len, offset, d.packetTypeId)) { return false; }
-    if (!readInt(data, len, offset, d.checksum)) { return false; }
-    if (!readInt(data, len, offset, descLen)) { return false; }
+        return success;
+    }
 
-    if (descLen < 0 || offset + descLen > len) { return false; }
+    // US-14: Verify header checksum
+    bool PacketDeserializer::verifyHeaderChecksum(const char* rawData, int rawLen,
+        const FODHeader& header)
+    {
+        bool valid = false;
+        if (rawLen >= 8)
+        {
+            const int checksumDataLen = rawLen - 4;
+            const int computed = computeChecksum(rawData, checksumDataLen);
+            valid = (computed == header.checkSum);
+        }
+        return valid;
+    }
 
-    d.description = new char[static_cast<size_t>(descLen) + 1U];
-    memcpy(d.description, data + offset, static_cast<size_t>(descLen));
-    d.description[descLen] = '\0';
+    bool PacketDeserializer::verifyDescriptionChecksum(const FODDescription& desc)
+    {
+        bool valid = false;
+        if (desc.description != nullptr)
+        {
+            //MISRA deviation strlen required to find dynamic char* length
+            const int len = static_cast<int>(std::strlen(desc.description));
+            const int computed = computeChecksum(desc.description, len);
+            valid = (computed == desc.checksum);
+        }
+        return valid;
+    }
 
-    return true;
-}
-
-bool PacketDeserializer::verifyDescriptionChecksum(const FODDescription& desc)
-{
-    if (desc.description == nullptr) { return false; }
-    const int len = static_cast<int>(strlen(desc.description));
-    const int computed = computeChecksum(desc.description, len);
-    return (computed == desc.checksum);
-}
-
-void PacketDeserializer::freeDescription(FODDescription& desc)
-{
-    delete[] desc.description;
-    desc.description = nullptr;
+    void PacketDeserializer::freeDescription(FODDescription& desc)
+    {
+        //MISRA deviation delete[] required for dynamic char* 
+        delete[] desc.description;
+        desc.description = nullptr;
+    }
 }

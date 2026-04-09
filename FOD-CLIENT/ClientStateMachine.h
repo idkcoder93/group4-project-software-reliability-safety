@@ -1,34 +1,39 @@
 #pragma once
 
-//Enforces that the client cannot submit a FOD report unless it is in the CONNECTED state, preventing premature transmission 
+// Client state machine — enforces that the client cannot submit a FOD report
+// unless it is in the CONNECTED state, preventing premature transmission.
 
-enum class ClientState
+namespace FODClient
 {
-    DISCONNECTED,       //Initial / after clean shutdown
-    CONNECTING,         //TCP connect() in progress
-    AUTHENTICATING,     //Auth packet sent, awaiting server accept
-    CONNECTED,          //Authenticated and idle — ready to report
-    REPORTING,          //Gathering user input for a FOD report
-    WAITING_RESPONSE    //FOD packet sent, awaiting server reply
-};
+    enum class ClientState
+    {
+        DISCONNECTED,       // Initial / after clean shutdown
+        CONNECTING,         // TCP connect() in progress
+        AUTHENTICATING,     // Auth packet sent, awaiting server accept
+        CONNECTED,          // Authenticated and idle - ready to report
+        REPORTING,          // Gathering user input for a FOD report
+        WAITING_RESPONSE,   // FOD packet sent, awaiting server reply
+        RECEIVING_BITMAP    // Receiving runway zone bitmap from server
+    };
 
-class ClientStateMachine
-{
-private:
-    ClientState currentState;
+    class ClientStateMachine
+    {
+    private:
+        ClientState currentState;
 
-    static const char* stateToString(ClientState s);
-    static bool isValidTransition(ClientState from, ClientState to);
+        static const char* stateToString(ClientState s);
+        static bool isValidTransition(ClientState from, ClientState to);
 
-public:
-    ClientStateMachine();
+    public:
+        ClientStateMachine();
 
-    ClientState getState() const;
-    const char* currentStateName() const;
+        ClientState getState() const;
+        const char* currentStateName() const;
 
-    //Returns true only when in CONNECTED state
-    bool canReport() const;
+        //returns true only when in CONNECTED state
+        bool canReport() const;
 
-    //Attempt a state transition
-    bool transition(ClientState newState);
-};
+        //attempt a state transition
+        bool transition(ClientState newState);
+    };
+}

@@ -1,4 +1,5 @@
 // FOD CLIENT - MISRA 2008 Compliant Version
+
 #define WIN32_LEAN_AND_MEAN
 
 #include <windows.h>
@@ -16,6 +17,9 @@
 namespace FODClientConfig {
     constexpr const char* SERVER_NAME = "127.0.0.1";
     constexpr const char* DEFAULT_PORT = "27015";
+
+    //connection handshake timeout in milliseconds
+    constexpr int HANDSHAKE_TIMEOUT_MS = 30000;
 }
 
 int main()
@@ -75,7 +79,15 @@ int main()
         }
     }
 
-    // ---- Run the authenticated FOD session (US-02, US-03, US-04, US-06) ----
+    //set 30-second receive timeout for the handshake phase
+    if (exitCode == 0)
+    {
+        const int timeoutMs = FODClientConfig::HANDSHAKE_TIMEOUT_MS;
+        (void)setsockopt(ConnectSocket, SOL_SOCKET, SO_RCVTIMEO,
+            reinterpret_cast<const char*>(&timeoutMs), sizeof(timeoutMs));
+    }
+
+    //Run the authenticated FOD session
     if (exitCode == 0)
     {
         std::cout << "Connected to server!" << std::endl;

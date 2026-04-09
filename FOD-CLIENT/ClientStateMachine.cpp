@@ -1,89 +1,112 @@
-
 #include "ClientStateMachine.h"
-#include <cstdio>
+#include <iostream>
 
-//private
-
-const char* ClientStateMachine::stateToString(ClientState s)
+namespace FODClient
 {
-    switch (s)
+    //private
+
+    const char* ClientStateMachine::stateToString(ClientState s)
     {
-    case ClientState::DISCONNECTED:     return "DISCONNECTED";
-    case ClientState::CONNECTING:       return "CONNECTING";
-    case ClientState::AUTHENTICATING:   return "AUTHENTICATING";
-    case ClientState::CONNECTED:        return "CONNECTED";
-    case ClientState::REPORTING:        return "REPORTING";
-    case ClientState::WAITING_RESPONSE: return "WAITING_RESPONSE";
-    default:                            return "UNKNOWN";
+        const char* name = "UNKNOWN";
+        switch (s)
+        {
+        case ClientState::DISCONNECTED:      name = "DISCONNECTED";      break;
+        case ClientState::CONNECTING:        name = "CONNECTING";        break;
+        case ClientState::AUTHENTICATING:    name = "AUTHENTICATING";    break;
+        case ClientState::CONNECTED:         name = "CONNECTED";         break;
+        case ClientState::REPORTING:         name = "REPORTING";         break;
+        case ClientState::WAITING_RESPONSE:  name = "WAITING_RESPONSE";  break;
+        case ClientState::RECEIVING_BITMAP:  name = "RECEIVING_BITMAP";  break;
+        default:                             /* no action required */     break;
+        }
+        return name;
     }
-}
 
-//Explicit transition table every legal edge is listed here.
-//Any unlisted edge is rejected
-bool ClientStateMachine::isValidTransition(ClientState from, ClientState to)
-{
-    switch (from)
+    //explicit transition tabl every legal edge is listed here.
+    bool ClientStateMachine::isValidTransition(ClientState from, ClientState to)
     {
-    case ClientState::DISCONNECTED:
-        return (to == ClientState::CONNECTING);
+        bool valid = false;
+        switch (from)
+        {
+        case ClientState::DISCONNECTED:
+            valid = (to == ClientState::CONNECTING);
+            break;
 
-    case ClientState::CONNECTING:
-        return (to == ClientState::AUTHENTICATING ||
-            to == ClientState::DISCONNECTED);
+        case ClientState::CONNECTING:
+            valid = (to == ClientState::AUTHENTICATING) ||
+                (to == ClientState::DISCONNECTED);
+            break;
 
-    case ClientState::AUTHENTICATING:
-        return (to == ClientState::CONNECTED ||
-            to == ClientState::DISCONNECTED);
+        case ClientState::AUTHENTICATING:
+            valid = (to == ClientState::CONNECTED) ||
+                (to == ClientState::DISCONNECTED);
+            break;
 
-    case ClientState::CONNECTED:
-        return (to == ClientState::REPORTING ||
-            to == ClientState::DISCONNECTED);
+        case ClientState::CONNECTED:
+            valid = (to == ClientState::REPORTING) ||
+                (to == ClientState::DISCONNECTED);
+            break;
 
-    case ClientState::REPORTING:
-        return (to == ClientState::WAITING_RESPONSE ||
-            to == ClientState::DISCONNECTED);
+        case ClientState::REPORTING:
+            valid = (to == ClientState::WAITING_RESPONSE) ||
+                (to == ClientState::DISCONNECTED);
+            break;
 
-    case ClientState::WAITING_RESPONSE:
-        return (to == ClientState::CONNECTED ||
-            to == ClientState::DISCONNECTED);
+        case ClientState::WAITING_RESPONSE:
+            valid = (to == ClientState::RECEIVING_BITMAP) ||
+                (to == ClientState::CONNECTED) ||
+                (to == ClientState::DISCONNECTED);
+            break;
 
-    default:
-        return false;
+        case ClientState::RECEIVING_BITMAP:
+            valid = (to == ClientState::CONNECTED) ||
+                (to == ClientState::DISCONNECTED);
+            break;
+
+        default:
+            //no action required
+            break;
+        }
+        return valid;
     }
-}
 
-//public
+    //public
 
-ClientStateMachine::ClientStateMachine()
-    : currentState(ClientState::DISCONNECTED)
-{
-}
-
-ClientState ClientStateMachine::getState() const
-{
-    return currentState;
-}
-
-const char* ClientStateMachine::currentStateName() const
-{
-    return stateToString(currentState);
-}
-
-bool ClientStateMachine::canReport() const
-{
-    //client must be in CONNECTED state to submit a report
-    return (currentState == ClientState::CONNECTED);
-}
-
-bool ClientStateMachine::transition(ClientState newState)
-{
-    if (!isValidTransition(currentState, newState))
+    ClientStateMachine::ClientStateMachine()
+        : currentState(ClientState::DISCONNECTED)
     {
-        printf("[STATE] REJECTED: %s -> %s (invalid transition)\n",
-            stateToString(currentState), stateToString(newState));
-        return false;
     }
-    currentState = newState;
-    printf("[STATE] %s\n", stateToString(currentState));
-    return true;
+
+    ClientState ClientStateMachine::getState() const
+    {
+        return currentState;
+    }
+
+    const char* ClientStateMachine::currentStateName() const
+    {
+        return stateToString(currentState);
+    }
+
+    bool ClientStateMachine::canReport() const
+    {
+        return (currentState == ClientState::CONNECTED);
+    }
+
+    bool ClientStateMachine::transition(ClientState newState)
+    {
+        bool success = false;
+        if (isValidTransition(currentState, newState))
+        {
+            currentState = newState;
+            std::cout << "[STATE] " << stateToString(currentState) << std::endl;
+            success = true;
+        }
+        else
+        {
+            std::cout << "[STATE] REJECTED: " << stateToString(currentState)
+                << " -> " << stateToString(newState)
+                << " (invalid transition)" << std::endl;
+        }
+        return success;
+    }
 }

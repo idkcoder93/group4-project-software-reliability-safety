@@ -14,10 +14,9 @@
 #include <iostream>
 #include <string>
 #include <functional>
-#include <iostream>
+#include <cstdlib>
 
 #pragma comment(lib, "Ws2_32.lib")
-
 namespace FODServer
 {
     //Constants for server configuration
@@ -27,9 +26,40 @@ namespace FODServer
         "DRIVER={ODBC Driver 18 for SQL Server};SERVER=localhost;DATABASE=FODDatabase;Trusted_Connection=Yes;TrustServerCertificate=Yes;";
 }
 
+//THIS IS JUST FOR RY DONT WORRY ABOUT IT
+/* 
+namespace FODServer
+{
+    // Constants for server configuration
+    constexpr auto DEFAULT_PORT = "27015";
+    constexpr std::size_t DEFAULT_BUFLEN = 512;
+
+    static std::string getConnectionString()
+    {
+        char* envVal = nullptr;
+        size_t len = 0;
+        std::string result;
+
+        if ((_dupenv_s(&envVal, &len, "FOD_DB_CONN") == 0) && (envVal != nullptr))
+        {
+            result = std::string(envVal);
+            // MISRA deviation: free() required by _dupenv_s contract — no alternative
+            free(envVal);   // NOLINT(cppcoreguidelines-no-malloc)
+        }
+        else
+        {
+            result = "DRIVER={ODBC Driver 18 for SQL Server};SERVER=localhost;"
+                "DATABASE=FODDatabase;Trusted_Connection=Yes;"
+                "TrustServerCertificate=Yes;";
+        }
+
+        return result;
+    }
+    constexpr int HANDSHAKE_TIMEOUT_SEC = 30;
+}
+*/
 int main()
 {
-    
     using namespace FODServer;
 
     // single point of exit for main
@@ -38,8 +68,7 @@ int main()
     DBHelper db;
     User user;
 
-
-    if (!db.openConnection(DEFAULT_CONN_STR))
+    if (!db.openConnection(DEFAULT_CONN_STR /* getConnectionString() */))
     {
         Logger::log("Failed to connect to DB.", Logger::ERR);
         returnCode = 1;
@@ -148,17 +177,38 @@ int main()
     {
         Logger::log("Server listening on port " + std::string(DEFAULT_PORT), Logger::INFO);
 
-        ClientSocket = accept(ListenSocket, nullptr, nullptr);
-        if (ClientSocket == INVALID_SOCKET)
+        //apply 30-second timeout on accept via select()
+        fd_set acceptSet;
+        FD_ZERO(&acceptSet);
+        FD_SET(ListenSocket, &acceptSet);
+
+        struct timeval timeout = {};
+        timeout.tv_sec = HANDSHAKE_TIMEOUT_SEC;
+        timeout.tv_usec = 0;
+
+        const int selectResult = select(0, &acceptSet, nullptr, nullptr, &timeout);
+        if (selectResult <= 0)
         {
-            Logger::log("accept failed: " + std::to_string(WSAGetLastError()), Logger::ERR);
+            Logger::log("Connection timeout — no client connected within "
+                + std::to_string(HANDSHAKE_TIMEOUT_SEC) + " seconds.", Logger::ERR);
             (void)closesocket(ListenSocket);
             (void)WSACleanup();
             returnCode = 1;
         }
+        else
+        {
+            ClientSocket = accept(ListenSocket, nullptr, nullptr);
+            if (ClientSocket == INVALID_SOCKET)
+            {
+                Logger::log("accept failed: " + std::to_string(WSAGetLastError()), Logger::ERR);
+                (void)closesocket(ListenSocket);
+                (void)WSACleanup();
+                returnCode = 1;
+            }
+        }
     }
 
-    //Run the authenticated FOD session
+    //run the authenticated FOD session
     if (returnCode == 0)
     {
         (void)runServerSession(ClientSocket, db);
