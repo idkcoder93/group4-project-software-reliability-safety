@@ -1,0 +1,12 @@
+=== Session [SESSION_1] started at 2026-04-02 22:49:59 ===
+[2026-04-02 22:50:15] [AUTH] [SENT] [Session:SESSION_1] user=admin
+[2026-04-02 22:50:15] [AUTH] [RECEIVED] [Session:SESSION_1] ACCEPTED
+[2026-04-02 22:51:36] [FOD_HEADER] [SENT] [Session:SESSION_1] Zone= Sev=3 Checksum=1204
+[2026-04-02 22:51:36] [FOD_DESCRIPTION] [SENT] [Session:SESSION_1] Desc=ROCKS ON THE RUNWAY OH GOD WERE ALL GONNA DIE Checksum=3016
+[2026-04-02 22:51:36] [RESPONSE] [RECEIVED] [Session:SESSION_1] FOD received. Zone:  | Status: INSPECTION | Officer: Testing
+=== Session [SESSION_1] started at 2026-04-02 22:55:50 ===
+[2026-04-02 22:55:56] [AUTH] [SENT] [Session:SESSION_1] user=admin
+[2026-04-02 22:55:56] [AUTH] [RECEIVED] [Session:SESSION_1] ACCEPTED
+[2026-04-02 22:56:25] [FOD_HEADER] [SENT] [Session:SESSION_1] Zone=Zone A3 Sev=5 Checksum=1372
+[2026-04-02 22:56:25] [FOD_DESCRIPTION] [SENT] [Session:SESSION_1] Desc=Firetruck barroling through Checksum=2736
+[2026-04-02 22:56:25] [RESPONSE] [RECEIVED] [Session:SESSION_1] FOD received. Zone: Zone A3 | Status: INSPECTION | Officer: TEST
