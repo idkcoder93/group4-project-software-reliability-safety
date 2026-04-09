@@ -17,6 +17,7 @@
 #include <cstdlib>
 
 #pragma comment(lib, "Ws2_32.lib")
+/*
 namespace FODServer
 {
     //Constants for server configuration
@@ -26,11 +27,21 @@ namespace FODServer
         "DRIVER={ODBC Driver 18 for SQL Server};SERVER=localhost;DATABASE=FODDatabase;Trusted_Connection=Yes;TrustServerCertificate=Yes;";
 }
 
-//THIS IS JUST FOR RY DONT WORRY ABOUT IT
-/* 
+*/
+
+// ------------------------------------------------------------------
+// DATABASE CONNECTION SETUP
+// By default this connects to localhost. If your SQL Server uses a 
+// named instance, set an environment variable on your machine:
+//
+// use this command in an admin command prompt, replacing YOUR-PC\INSTANCE with your server name:
+// setx FOD_DB_CONN "DRIVER={ODBC Driver 18 for SQL Server};SERVER=YOUR-PC\INSTANCE;DATABASE=FODDatabase;Trusted_Connection=Yes;TrustServerCertificate=Yes;"
+//
+// Then restart Visual Studio so it picks up the new variable.
+// ------------------------------------------------------------------
 namespace FODServer
 {
-    // Constants for server configuration
+    //constants for server configuration
     constexpr auto DEFAULT_PORT = "27015";
     constexpr std::size_t DEFAULT_BUFLEN = 512;
 
@@ -43,8 +54,8 @@ namespace FODServer
         if ((_dupenv_s(&envVal, &len, "FOD_DB_CONN") == 0) && (envVal != nullptr))
         {
             result = std::string(envVal);
-            // MISRA deviation: free() required by _dupenv_s contract — no alternative
-            free(envVal);   // NOLINT(cppcoreguidelines-no-malloc)
+            //MISRA deviation free() required by _dupenv_s contract  no alternative
+            free(envVal);   //NOLINT(cppcoreguidelines-no-malloc)
         }
         else
         {
@@ -57,7 +68,7 @@ namespace FODServer
     }
     constexpr int HANDSHAKE_TIMEOUT_SEC = 30;
 }
-*/
+
 int main()
 {
     using namespace FODServer;
@@ -68,7 +79,7 @@ int main()
     DBHelper db;
     User user;
 
-    if (!db.openConnection(DEFAULT_CONN_STR /* getConnectionString() */))
+    if (!db.openConnection(/*DEFAULT_CONN_STR*/  getConnectionString()))
     {
         Logger::log("Failed to connect to DB.", Logger::ERR);
         returnCode = 1;
