@@ -198,7 +198,7 @@ int main()
         }
     }
 
-    // Cleanup — all return values handled through helpers
+    // casting void as function closes and clean connections
     (void)closesocket(ClientSocket);
     (void)closesocket(ListenSocket);
     (void)WSACleanup();
