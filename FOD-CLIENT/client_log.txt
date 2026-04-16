@@ -23,3 +23,21 @@
 [2026-04-09 12:56:31] [RESPONSE] [RECEIVED] [Session:SESSION_1] Bitmap received: runway_zone_A3.bmp (1080054 bytes)
 [2026-04-09 12:56:38] [INFO] [Session:SESSION_1] Client disconnecting
 === Session [SESSION_1] ended at 2026-04-09 12:56:39 ===
+=== Session [SESSION_1] started at 2026-04-09 14:29:52 ===
+[2026-04-09 14:29:56] [AUTH] [SENT] [Session:SESSION_1] user=admin
+[2026-04-09 14:29:56] [AUTH] [RECEIVED] [Session:SESSION_1] ACCEPTED
+[2026-04-09 14:30:52] [FOD_HEADER] [SENT] [Session:SESSION_1] Zone=C4 Sev=3 Checksum=2616
+[2026-04-09 14:30:52] [FOD_DESCRIPTION] [SENT] [Session:SESSION_1] Desc=form of debris is set on the runway, will take roughly 30 minutes to clear the runway Checksum=7866
+[2026-04-09 14:30:52] [RESPONSE] [RECEIVED] [Session:SESSION_1] FOD received. Zone: C4 | Runway Status: HAZARD | Officer: christian ranaldo
+[2026-04-09 14:30:52] [RESPONSE] [RECEIVED] [Session:SESSION_1] Bitmap received: runway_zone_C4.bmp (1080054 bytes)
+[2026-04-09 14:31:01] [INFO] [Session:SESSION_1] Client disconnecting
+=== Session [SESSION_1] ended at 2026-04-09 14:31:01 ===
+=== Session [SESSION_1] started at 2026-04-16 19:39:03 ===
+[2026-04-16 19:39:09] [AUTH] [SENT] [Session:SESSION_1] user=admin
+[2026-04-16 19:39:09] [AUTH] [RECEIVED] [Session:SESSION_1] ACCEPTED
+[2026-04-16 19:39:39] [FOD_HEADER] [SENT] [Session:SESSION_1] Zone=A3 Sev=5 Checksum=1863
+[2026-04-16 19:39:39] [FOD_DESCRIPTION] [SENT] [Session:SESSION_1] Desc=rocks found in the runway Checksum=2428
+[2026-04-16 19:39:39] [RESPONSE] [RECEIVED] [Session:SESSION_1] FOD received. Zone: A3 | Runway Status: HAZARD | Officer: alex fridman
+[2026-04-16 19:39:39] [RESPONSE] [RECEIVED] [Session:SESSION_1] Bitmap received: runway_zone_A3.bmp (1080054 bytes)
+[2026-04-16 19:39:45] [INFO] [Session:SESSION_1] Client disconnecting
+=== Session [SESSION_1] ended at 2026-04-16 19:39:46 ===
