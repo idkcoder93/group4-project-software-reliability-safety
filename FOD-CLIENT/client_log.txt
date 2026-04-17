@@ -41,3 +41,6 @@
 [2026-04-16 19:39:39] [RESPONSE] [RECEIVED] [Session:SESSION_1] Bitmap received: runway_zone_A3.bmp (1080054 bytes)
 [2026-04-16 19:39:45] [INFO] [Session:SESSION_1] Client disconnecting
 === Session [SESSION_1] ended at 2026-04-16 19:39:46 ===
+=== Session [SESSION_1] started at 2026-04-17 16:28:41 ===
+[2026-04-17 16:28:46] [AUTH] [SENT] [Session:SESSION_1] user=admin
+[2026-04-17 16:28:46] [AUTH] [RECEIVED] [Session:SESSION_1] ACCEPTED

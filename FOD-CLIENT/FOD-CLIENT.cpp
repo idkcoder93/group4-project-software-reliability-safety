@@ -7,6 +7,7 @@
 #include <ws2tcpip.h>
 #include <iostream>
 #include <string>
+#include <cstdlib>
 #include "Logger.h"
 #include "ClientSession.h"
 
@@ -19,7 +20,37 @@ namespace FODClientConfig {
     constexpr const char* DEFAULT_PORT = "27015";
 
     //connection handshake timeout in milliseconds
-    constexpr int HANDSHAKE_TIMEOUT_MS = 30000;
+    constexpr int HANDSHAKE_TIMEOUT_MS = 120000;
+}
+
+namespace
+{
+    bool isAutomatedTestingEnabled()
+    {
+        char* envVal = nullptr;
+        size_t len = 0;
+        const bool enabled = ((_dupenv_s(&envVal, &len, "FOD_AUTOMATED_TESTING") == 0) && (envVal != nullptr));
+        if (envVal != nullptr)
+        {
+            free(envVal);   //NOLINT(cppcoreguidelines-no-malloc)
+        }
+        return enabled;
+    }
+
+    std::string getAutomationCredential(const char* envName, const char* defaultValue)
+    {
+        char* envVal = nullptr;
+        size_t len = 0;
+        std::string result(defaultValue);
+
+        if ((_dupenv_s(&envVal, &len, envName) == 0) && (envVal != nullptr))
+        {
+            result = std::string(envVal);
+            free(envVal);   //NOLINT(cppcoreguidelines-no-malloc)
+        }
+
+        return result;
+    }
 }
 
 int main()
@@ -92,6 +123,14 @@ int main()
     {
         std::cout << "Connected to server!" << std::endl;
         Logger clientLogger("client_log.txt", "SESSION_1");
+
+        if (isAutomatedTestingEnabled())
+        {
+            std::cout << "Automated test login enabled." << std::endl;
+            (void)getAutomationCredential("FOD_TEST_USERNAME", "admin");
+            (void)getAutomationCredential("FOD_TEST_PASSWORD", "pass@123");
+        }
+
         (void)runClientSession(ConnectSocket, clientLogger);
     }
 

@@ -12,11 +12,25 @@
 #include <thread>
 #include <atomic>
 #include <fstream>
+#include <chrono>
+#include <cstdlib>
 
 namespace FODClient
 {
     //heartbeat interval in seconds
     static constexpr int HEARTBEAT_INTERVAL_SEC = 60;
+
+    static bool isAutomatedTestingEnabled()
+    {
+        char* envVal = nullptr;
+        size_t len = 0;
+        const bool enabled = ((_dupenv_s(&envVal, &len, "FOD_AUTOMATED_TESTING") == 0) && (envVal != nullptr));
+        if (envVal != nullptr)
+        {
+            free(envVal);   //NOLINT(cppcoreguidelines-no-malloc)
+        }
+        return enabled;
+    }
 
     //helpers
 
@@ -210,10 +224,18 @@ int runClientSession(SOCKET sock, Logger& logger)
 
     std::string username;
     std::string password;
-    std::cout << "Username: ";
-    std::cin >> username;
-    std::cout << "Password: ";
-    std::cin >> password;
+    if (isAutomatedTestingEnabled())
+    {
+        username = "admin";
+        password = "pass@123";
+    }
+    else
+    {
+        std::cout << "Username: ";
+        std::cin >> username;
+        std::cout << "Password: ";
+        std::cin >> password;
+    }
 
     (void)sm.transition(ClientState::AUTHENTICATING);
 
@@ -249,6 +271,19 @@ int runClientSession(SOCKET sock, Logger& logger)
     std::thread heartbeatThread(heartbeatSender, sock,
         std::ref(heartbeatRunning),
         std::ref(heartbeatPaused));
+
+    if (isAutomatedTestingEnabled())
+    {
+        std::cout << "[AUTO] Client running in automated test mode." << std::endl;
+        std::cout << "[AUTO] Demo window will remain open briefly." << std::endl;
+        std::this_thread::sleep_for(std::chrono::seconds(10));
+        heartbeatRunning.store(false);
+        if (heartbeatThread.joinable())
+        {
+            heartbeatThread.join();
+        }
+        return 0;
+    }
 
     //FOD reporting loop
 

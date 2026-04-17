@@ -1,6 +1,7 @@
 #include "utils.h"
 #include <iostream>
 #include <conio.h>
+#include <cstdlib>
 
 /*
     MISRA _getch is not allowed for condition of a loop, so we read the first character before 
@@ -10,8 +11,40 @@
 */ 
 namespace FODServer
 {
+    bool isAutomatedTestingEnabled()
+    {
+        char* envVal = nullptr;
+        size_t len = 0;
+        const bool enabled = ((_dupenv_s(&envVal, &len, "FOD_AUTOMATED_TESTING") == 0) && (envVal != nullptr));
+        if (envVal != nullptr)
+        {
+            free(envVal);   //NOLINT(cppcoreguidelines-no-malloc)
+        }
+        return enabled;
+    }
+
+    std::string getAutomationCredential(const char* envName, const char* defaultValue)
+    {
+        char* envVal = nullptr;
+        size_t len = 0;
+        std::string result(defaultValue);
+
+        if ((_dupenv_s(&envVal, &len, envName) == 0) && (envVal != nullptr))
+        {
+            result = std::string(envVal);
+            free(envVal);   //NOLINT(cppcoreguidelines-no-malloc)
+        }
+
+        return result;
+    }
+
     std::string getPassword()
     {
+        if (isAutomatedTestingEnabled())
+        {
+            return getAutomationCredential("FOD_TEST_PASSWORD", "pass@123");
+        }
+
         std::string password;
         char ch{ 0 };
 

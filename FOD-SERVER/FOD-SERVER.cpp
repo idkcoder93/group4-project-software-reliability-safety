@@ -64,7 +64,7 @@ namespace FODServer
 
         return result;
     }
-    constexpr int HANDSHAKE_TIMEOUT_SEC = 30;
+    constexpr int HANDSHAKE_TIMEOUT_SEC = 120;
 }
 
 int main()
@@ -87,10 +87,20 @@ int main()
     {
         std::string inputUsername{};
         std::string inputPassword{};
-        std::cout << "Enter username: ";
-        std::cin >> inputUsername;
-        std::cout << "Enter password: ";
-        inputPassword = getPassword();
+
+        if (isAutomatedTestingEnabled())
+        {
+            inputUsername = getAutomationCredential("FOD_TEST_USERNAME", "admin");
+            inputPassword = getAutomationCredential("FOD_TEST_PASSWORD", "pass@123");
+            Logger::log("Automated test login enabled.", Logger::INFO);
+        }
+        else
+        {
+            std::cout << "Enter username: ";
+            std::cin >> inputUsername;
+            std::cout << "Enter password: ";
+            inputPassword = getPassword();
+        }
 
         const bool loggedIn = user.authenticateUser(inputUsername, inputPassword, db);
         if (!loggedIn)
@@ -186,41 +196,64 @@ int main()
     {
         Logger::log("Server listening on port " + std::string(DEFAULT_PORT), Logger::INFO);
 
-        //apply 30-second timeout on accept via select()
-        fd_set acceptSet;
-        FD_ZERO(&acceptSet);
-        FD_SET(ListenSocket, &acceptSet);
-
-        struct timeval timeout = {};
-        timeout.tv_sec = HANDSHAKE_TIMEOUT_SEC;
-        timeout.tv_usec = 0;
-
-        const int selectResult = select(0, &acceptSet, nullptr, nullptr, &timeout);
-        if (selectResult <= 0)
+        const bool automatedTesting = isAutomatedTestingEnabled();
+        bool keepListening = true;
+        while ((returnCode == 0) && keepListening)
         {
-            Logger::log("Connection timeout — no client connected within "
-                + std::to_string(HANDSHAKE_TIMEOUT_SEC) + " seconds.", Logger::ERR);
-            (void)closesocket(ListenSocket);
-            (void)WSACleanup();
-            returnCode = 1;
-        }
-        else
-        {
-            ClientSocket = accept(ListenSocket, nullptr, nullptr);
-            if (ClientSocket == INVALID_SOCKET)
+            //apply 30-second timeout on accept via select()
+            fd_set acceptSet;
+            FD_ZERO(&acceptSet);
+            FD_SET(ListenSocket, &acceptSet);
+
+            struct timeval timeout = {};
+            timeout.tv_sec = HANDSHAKE_TIMEOUT_SEC;
+            timeout.tv_usec = 0;
+
+            const int selectResult = select(0, &acceptSet, nullptr, nullptr, &timeout);
+            if (selectResult <= 0)
             {
-                Logger::log("accept failed: " + std::to_string(WSAGetLastError()), Logger::ERR);
-                (void)closesocket(ListenSocket);
-                (void)WSACleanup();
-                returnCode = 1;
+                Logger::log("Connection timeout — no client connected within "
+                    + std::to_string(HANDSHAKE_TIMEOUT_SEC) + " seconds.", Logger::ERR);
+                if (!automatedTesting)
+                {
+                    (void)closesocket(ListenSocket);
+                    (void)WSACleanup();
+                    returnCode = 1;
+                    keepListening = false;
+                }
+                else
+                {
+                    (void)Sleep(250);
+                }
+            }
+            else
+            {
+                ClientSocket = accept(ListenSocket, nullptr, nullptr);
+                if (ClientSocket == INVALID_SOCKET)
+                {
+                    Logger::log("accept failed: " + std::to_string(WSAGetLastError()), Logger::ERR);
+                    if (!automatedTesting)
+                    {
+                        (void)closesocket(ListenSocket);
+                        (void)WSACleanup();
+                        returnCode = 1;
+                        keepListening = false;
+                    }
+                }
+                else
+                {
+                    //run the authenticated FOD session
+                    (void)runServerSession(ClientSocket, db);
+                    (void)closesocket(ClientSocket);
+                    ClientSocket = INVALID_SOCKET;
+
+                    if (!automatedTesting)
+                    {
+                        keepListening = false;
+                    }
+                }
             }
         }
-    }
-
-    //run the authenticated FOD session
-    if (returnCode == 0)
-    {
-        (void)runServerSession(ClientSocket, db);
     }
 
     (void)closesocket(ClientSocket);
