@@ -66,6 +66,21 @@ namespace
         (void)CloseHandle(snapshot);
         return running;
     }
+
+    bool SendAll(SOCKET socketHandle, const char* data, int length)
+    {
+        int total = 0;
+        while (total < length)
+        {
+            const int sent = send(socketHandle, &data[total], length - total, 0);
+            if (sent == SOCKET_ERROR)
+            {
+                return false;
+            }
+            total += sent;
+        }
+        return true;
+    }
 }
 
 TEST(FODRuntimeRequiredTests, ServerProcessMustBeRunning)
@@ -98,7 +113,7 @@ TEST(FODRuntimeRequiredTests, RunningServerAcceptsConnectionOnDefaultPort)
     (void)closesocket(clientSocket);
 }
 
-TEST(FODRuntimeRequiredTests, RunningServerEchoesClientMessage)
+TEST(FODRuntimeRequiredTests, RunningServerRespondsToInvalidAuthPacket)
 {
     WsaSession wsa;
     ASSERT_TRUE(wsa.ok());
@@ -117,16 +132,15 @@ TEST(FODRuntimeRequiredTests, RunningServerEchoesClientMessage)
 
     ASSERT_NE(connect(clientSocket, reinterpret_cast<sockaddr*>(&serverAddr), sizeof(serverAddr)), SOCKET_ERROR);
 
-    const std::string payload = "runtime-integration-ping";
-    const int sent = send(clientSocket, payload.data(), static_cast<int>(payload.size()), 0);
-    ASSERT_EQ(sent, static_cast<int>(payload.size()));
+    const std::string payload = "runtime-test-user:runtime-test-password";
+    const int payloadLength = static_cast<int>(payload.size());
+    ASSERT_TRUE(SendAll(clientSocket, reinterpret_cast<const char*>(&payloadLength), 4));
+    ASSERT_TRUE(SendAll(clientSocket, payload.data(), payloadLength));
 
-    std::array<char, 512> recvBuffer{};
-    const int received = recv(clientSocket, recvBuffer.data(), static_cast<int>(recvBuffer.size()), 0);
-    ASSERT_GT(received, 0);
-
-    const std::string echoed(recvBuffer.data(), static_cast<std::size_t>(received));
-    EXPECT_EQ(echoed, payload);
+    char authResponse = 0x01;
+    const int received = recv(clientSocket, &authResponse, 1, 0);
+    ASSERT_EQ(received, 1);
+    EXPECT_EQ(authResponse, 0x00);
 
     (void)shutdown(clientSocket, SD_BOTH);
     (void)closesocket(clientSocket);
