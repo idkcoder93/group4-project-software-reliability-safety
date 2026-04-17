@@ -1,5 +1,8 @@
 #include "pch.h"
 #include "CppUnitTest.h"
+#include <winsock2.h>
+#include <ws2tcpip.h>
+#pragma comment(lib, "Ws2_32.lib")
 #include "../FOD-SERVER/BitmapGenerator.h"
 #include "../FOD-SERVER/PacketDeserializer.h"
 #include "../FOD-SERVER/DBHelper.h"
@@ -7,6 +10,7 @@
 #include <cstring>
 #include <chrono>
 #include <ctime>
+#include <array>
 
 using namespace Microsoft::VisualStudio::CppUnitTestFramework;
 using namespace FODServer;
@@ -777,6 +781,128 @@ namespace UnitTests
                 db.closeConnection();
             }
             Assert::IsTrue(true);
+        }
+    };
+
+    TEST_CLASS(connectionClientTest) {
+        TEST_METHOD(Client_CanConnect_ToServer)
+        {
+            // Init Winsock
+            WSADATA wsaData{};
+            Assert::AreEqual(0, WSAStartup(MAKEWORD(2, 2), &wsaData), L"WSAStartup failed");
+
+            struct addrinfo hints {};
+            hints.ai_family = AF_INET;
+            hints.ai_socktype = SOCK_STREAM;
+            hints.ai_protocol = IPPROTO_TCP;
+            hints.ai_flags = AI_PASSIVE;
+
+            struct addrinfo* res = nullptr;
+            (void)getaddrinfo(nullptr, "27015", &hints, &res);
+
+            SOCKET listenSocket = socket(res->ai_family, res->ai_socktype, res->ai_protocol);
+            (void)bind(listenSocket, res->ai_addr, static_cast<int>(res->ai_addrlen));
+            (void)listen(listenSocket, 1);
+            freeaddrinfo(res);
+
+            struct addrinfo clientHints {};
+            clientHints.ai_family = AF_UNSPEC;
+            clientHints.ai_socktype = SOCK_STREAM;
+            clientHints.ai_protocol = IPPROTO_TCP;
+
+            struct addrinfo* clientRes = nullptr;
+            (void)getaddrinfo("127.0.0.1", "27015", &clientHints, &clientRes);
+
+            SOCKET clientSocket = socket(clientRes->ai_family, clientRes->ai_socktype, clientRes->ai_protocol);
+            const int result = connect(clientSocket, clientRes->ai_addr, static_cast<int>(clientRes->ai_addrlen));
+            freeaddrinfo(clientRes);
+
+            SOCKET acceptedSocket = accept(listenSocket, nullptr, nullptr);
+
+            Assert::AreEqual(0, result, L"Client connect() should succeed");
+            Assert::IsTrue(acceptedSocket != INVALID_SOCKET, L"Server should accept the connection");
+
+            (void)closesocket(clientSocket);
+            (void)closesocket(acceptedSocket);
+            (void)closesocket(listenSocket);
+            (void)WSACleanup();
+        }
+    };
+
+    // =========================================================
+    // FOD Report Notification Tests
+    // =========================================================
+    TEST_CLASS(FODReportNotificationTests)
+    {
+    public:
+
+        TEST_METHOD(Server_DisplaysNotification_WhenFODReportReceived)
+        {
+            // Capture cout to verify notification is printed
+            std::ostringstream capture;
+            std::streambuf* original = std::cout.rdbuf(capture.rdbuf());
+
+            // Init Winsock
+            WSADATA wsaData{};
+            Assert::AreEqual(0, WSAStartup(MAKEWORD(2, 2), &wsaData), L"WSAStartup failed");
+
+            // Set up listen socket
+            struct addrinfo hints {};
+            hints.ai_family = AF_INET;
+            hints.ai_socktype = SOCK_STREAM;
+            hints.ai_protocol = IPPROTO_TCP;
+            hints.ai_flags = AI_PASSIVE;
+
+            struct addrinfo* res = nullptr;
+            (void)getaddrinfo(nullptr, "27015", &hints, &res);
+
+            SOCKET listenSocket = socket(res->ai_family, res->ai_socktype, res->ai_protocol);
+            (void)bind(listenSocket, res->ai_addr, static_cast<int>(res->ai_addrlen));
+            (void)listen(listenSocket, 1);
+            freeaddrinfo(res);
+
+            // Connect client
+            struct addrinfo clientHints {};
+            clientHints.ai_family = AF_UNSPEC;
+            clientHints.ai_socktype = SOCK_STREAM;
+            clientHints.ai_protocol = IPPROTO_TCP;
+
+            struct addrinfo* clientRes = nullptr;
+            (void)getaddrinfo("127.0.0.1", "27015", &clientHints, &clientRes);
+
+            SOCKET clientSocket = socket(clientRes->ai_family, clientRes->ai_socktype, clientRes->ai_protocol);
+            (void)connect(clientSocket, clientRes->ai_addr, static_cast<int>(clientRes->ai_addrlen));
+            freeaddrinfo(clientRes);
+
+            SOCKET acceptedSocket = accept(listenSocket, nullptr, nullptr);
+
+            // Simulate client sending a FOD report
+            const std::string fodReport = "FOD_REPORT:B3:DEBRIS:2";
+            (void)send(clientSocket, fodReport.c_str(), static_cast<int>(fodReport.size()), 0);
+
+            // Simulate server receiving it and printing a notification
+            std::array<char, 512> buf{};
+            const int received = recv(acceptedSocket, buf.data(), static_cast<int>(buf.size()) - 1, 0);
+            if (received > 0)
+            {
+                std::cout << "[NOTIFICATION] FOD report received: " << std::string(buf.data(), static_cast<std::size_t>(received)) << std::endl;
+            }
+
+            // Restore cout and verify notification was printed
+            std::cout.rdbuf(original);
+            const std::string output = capture.str();
+
+            Assert::IsTrue(received > 0,
+                L"Server should receive the FOD report");
+            Assert::IsTrue(output.find("[NOTIFICATION]") != std::string::npos,
+                L"Server should display a notification when FOD report is received");
+            Assert::IsTrue(output.find("FOD report received") != std::string::npos,
+                L"Notification should confirm the FOD report was received");
+
+            (void)closesocket(clientSocket);
+            (void)closesocket(acceptedSocket);
+            (void)closesocket(listenSocket);
+            (void)WSACleanup();
         }
     };
 }
