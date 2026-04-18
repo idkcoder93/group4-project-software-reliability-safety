@@ -275,14 +275,11 @@ int runClientSession(SOCKET sock, Logger& logger)
     if (isAutomatedTestingEnabled())
     {
         std::cout << "[AUTO] Client running in automated test mode." << std::endl;
-        std::cout << "[AUTO] Demo window will remain open briefly." << std::endl;
-        std::this_thread::sleep_for(std::chrono::seconds(10));
-        heartbeatRunning.store(false);
-        if (heartbeatThread.joinable())
+        std::cout << "[AUTO] Demo window will remain open until test teardown." << std::endl;
+        while (true)
         {
-            heartbeatThread.join();
+            std::this_thread::sleep_for(std::chrono::seconds(1));
         }
-        return 0;
     }
 
     //FOD reporting loop
