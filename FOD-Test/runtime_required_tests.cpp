@@ -8,8 +8,11 @@
 #include <tlhelp32.h>
 
 #include <array>
+#include <fstream>
 #include <string>
 #include <vector>
+
+#include "../FOD-CLIENT/PacketSerializer.cpp"
 
 #pragma comment(lib, "Ws2_32.lib")
 
@@ -83,6 +86,31 @@ namespace
         return true;
     }
 
+    bool RecvAll(SOCKET socketHandle, char* data, int length)
+    {
+        int total = 0;
+        while (total < length)
+        {
+            const int received = recv(socketHandle, &data[total], length - total, 0);
+            if (received <= 0)
+            {
+                return false;
+            }
+            total += received;
+        }
+        return true;
+    }
+
+    bool SendInt(SOCKET socketHandle, int value)
+    {
+        return SendAll(socketHandle, reinterpret_cast<const char*>(&value), 4);
+    }
+
+    bool RecvInt(SOCKET socketHandle, int& value)
+    {
+        return RecvAll(socketHandle, reinterpret_cast<char*>(&value), 4);
+    }
+
     std::wstring GetModuleDirectory()
     {
         std::wstring result;
@@ -110,6 +138,15 @@ namespace
         }
         return path;
     }
+
+    std::wstring BuildFilePath(const wchar_t* fileName)
+    {
+        return BuildExecutablePath(fileName);
+    }
+
+    bool ConnectToLiveServer(SOCKET& socketHandle);
+    bool AuthenticateLiveServer(SOCKET socketHandle, const std::string& username, const std::string& password, char& authResponse);
+    void ShutdownAndCloseSocket(SOCKET& socketHandle);
 
     bool LaunchProcess(const wchar_t* fileName, PROCESS_INFORMATION& processInfo)
     {
@@ -151,14 +188,63 @@ namespace
             return false;
         }
 
-        SOCKET probe = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
-        if (probe == INVALID_SOCKET)
+        SOCKET probe = INVALID_SOCKET;
+        if (!ConnectToLiveServer(probe))
         {
             return false;
         }
 
-        DWORD timeoutMs = 2000;
-        (void)setsockopt(probe, SOL_SOCKET, SO_RCVTIMEO,
+        char authResponse = 0x00;
+        const bool authenticated = AuthenticateLiveServer(probe, "admin", "pass@123", authResponse);
+        ShutdownAndCloseSocket(probe);
+        return authenticated && (authResponse == 0x01);
+    }
+
+    std::string ReadTextFile(const std::wstring& filePath)
+    {
+        const std::string narrowPath(filePath.begin(), filePath.end());
+        std::ifstream input(narrowPath.c_str(), std::ios::in | std::ios::binary);
+        if (!input.is_open())
+        {
+            return std::string();
+        }
+
+        std::string contents;
+        input.seekg(0, std::ios::end);
+        const std::streampos endPos = input.tellg();
+        if (endPos <= 0)
+        {
+            return std::string();
+        }
+
+        contents.resize(static_cast<std::size_t>(endPos));
+        input.seekg(0, std::ios::beg);
+        (void)input.read(&contents[0], static_cast<std::streamsize>(contents.size()));
+        return contents;
+    }
+
+    bool SendLengthPrefixedBytes(SOCKET socketHandle, const std::vector<char>& bytes)
+    {
+        const int length = static_cast<int>(bytes.size());
+        return SendInt(socketHandle, length) && SendAll(socketHandle, bytes.data(), length);
+    }
+
+    bool SendLengthPrefixedString(SOCKET socketHandle, const std::string& text)
+    {
+        const int length = static_cast<int>(text.size());
+        return SendInt(socketHandle, length) && SendAll(socketHandle, text.data(), length);
+    }
+
+    bool ConnectToLiveServer(SOCKET& socketHandle)
+    {
+        socketHandle = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+        if (socketHandle == INVALID_SOCKET)
+        {
+            return false;
+        }
+
+        DWORD timeoutMs = 5000;
+        (void)setsockopt(socketHandle, SOL_SOCKET, SO_RCVTIMEO,
             reinterpret_cast<const char*>(&timeoutMs), sizeof(timeoutMs));
 
         sockaddr_in serverAddr{};
@@ -166,36 +252,123 @@ namespace
         serverAddr.sin_port = htons(27015);
         serverAddr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
 
-        bool ready = false;
-        for (int attempt = 0; attempt < 120; ++attempt)
+        const int connectResult = connect(socketHandle, reinterpret_cast<sockaddr*>(&serverAddr), sizeof(serverAddr));
+        if (connectResult == SOCKET_ERROR)
         {
-            const int connectResult = connect(probe, reinterpret_cast<sockaddr*>(&serverAddr), sizeof(serverAddr));
-            if (connectResult == SOCKET_ERROR)
-            {
-                (void)Sleep(250);
-                continue;
-            }
-
-            const std::string authPayload = std::string("admin:pass@123");
-            const int authLen = static_cast<int>(authPayload.size());
-            if (!SendAll(probe, reinterpret_cast<const char*>(&authLen), 4) ||
-                !SendAll(probe, authPayload.data(), authLen))
-            {
-                break;
-            }
-
-            char authResponse = 0x00;
-            const int received = recv(probe, &authResponse, 1, 0);
-            if ((received == 1) && (authResponse == 0x01))
-            {
-                ready = true;
-            }
-            break;
+            (void)closesocket(socketHandle);
+            socketHandle = INVALID_SOCKET;
+            return false;
         }
 
-        (void)shutdown(probe, SD_BOTH);
-        (void)closesocket(probe);
-        return ready;
+        return true;
+    }
+
+    bool AuthenticateLiveServer(SOCKET socketHandle, const std::string& username, const std::string& password, char& authResponse)
+    {
+        const std::string payload = username + ":" + password;
+        const int payloadLength = static_cast<int>(payload.size());
+        if (!SendInt(socketHandle, payloadLength) || !SendAll(socketHandle, payload.data(), payloadLength))
+        {
+            return false;
+        }
+
+        authResponse = 0x00;
+        return (recv(socketHandle, &authResponse, 1, 0) == 1);
+    }
+
+    bool SendHeartbeatAndReceiveAck(SOCKET socketHandle)
+    {
+        const int heartbeatLen = 4;
+        const int heartbeatType = 0x06;
+        if (!SendInt(socketHandle, heartbeatLen) || !SendInt(socketHandle, heartbeatType))
+        {
+            return false;
+        }
+
+        int ackLen = 0;
+        int ackType = 0;
+        return RecvInt(socketHandle, ackLen) && (ackLen == 4) && RecvInt(socketHandle, ackType) && (ackType == 0x06);
+    }
+
+    bool SendMalformedReportPacket(SOCKET socketHandle)
+    {
+        const int truncatedPacketLength = 4;
+        const int packetType = 0x03;
+        return SendInt(socketHandle, truncatedPacketLength) && SendInt(socketHandle, packetType);
+    }
+
+    bool SubmitLiveFodReport(SOCKET socketHandle,
+        HazardType hazard,
+        const std::string& zone,
+        int severity,
+        const std::string& officer,
+        const std::string& description,
+        std::string& response,
+        int& bitmapPacketType,
+        std::vector<char>& bitmapBytes)
+    {
+        FODDescription desc = PacketSerializer::buildDescription(description);
+        FODHeader header = PacketSerializer::buildHeader(hazard, zone, severity, officer,
+            static_cast<int>(description.size()));
+
+        const std::vector<char> headerBytes = PacketSerializer::serializeHeader(header);
+        const std::vector<char> descriptionBytes = PacketSerializer::serializeDescription(desc);
+        PacketSerializer::freeDescription(desc);
+
+        if (!SendLengthPrefixedBytes(socketHandle, headerBytes) ||
+            !SendLengthPrefixedBytes(socketHandle, descriptionBytes))
+        {
+            return false;
+        }
+
+        int responseLength = 0;
+        if (!RecvInt(socketHandle, responseLength) || (responseLength <= 0) || (responseLength > 4096))
+        {
+            return false;
+        }
+
+        response.assign(static_cast<std::size_t>(responseLength), '\0');
+        if (!RecvAll(socketHandle, &response[0], responseLength))
+        {
+            return false;
+        }
+
+        int bitmapSize = 0;
+        if (!RecvInt(socketHandle, bitmapPacketType) || (bitmapPacketType != 0x05) ||
+            !RecvInt(socketHandle, bitmapSize) || (bitmapSize <= 54))
+        {
+            return false;
+        }
+
+        bitmapBytes.assign(static_cast<std::size_t>(bitmapSize), '\0');
+        if (!RecvAll(socketHandle, bitmapBytes.data(), bitmapSize))
+        {
+            return false;
+        }
+
+        return true;
+    }
+
+    void ShutdownAndCloseSocket(SOCKET& socketHandle)
+    {
+        if (socketHandle != INVALID_SOCKET)
+        {
+            (void)shutdown(socketHandle, SD_BOTH);
+            (void)closesocket(socketHandle);
+            socketHandle = INVALID_SOCKET;
+        }
+    }
+
+    bool IsBitmapHeaderValid(const std::vector<char>& bitmapBytes)
+    {
+        return (bitmapBytes.size() > 54U) && (bitmapBytes[0] == 'B') && (bitmapBytes[1] == 'M');
+    }
+
+    bool ReadClientLogContains(const std::string& marker)
+    {
+        const std::wstring logPath = BuildFilePath(L"client_log.txt");
+        const std::string contents = ReadTextFile(logPath);
+        return (contents.find(marker) != std::string::npos);
     }
 
     class LiveAppHarness
@@ -209,14 +382,12 @@ namespace
         void EnsureServerRunning()
         {
             ConfigureAutomationEnvironment();
+            CleanupFinishedProcess(serverProcess_, serverStarted_);
 
-            if (!serverStarted_)
+            if (!IsProcessRunning(L"FOD-SERVER.exe"))
             {
-                if (!IsProcessRunning(L"FOD-SERVER.exe"))
-                {
-                    ASSERT_TRUE(LaunchProcess(L"FOD-SERVER.exe", serverProcess_));
-                    serverStarted_ = true;
-                }
+                ASSERT_TRUE(LaunchProcess(L"FOD-SERVER.exe", serverProcess_));
+                serverStarted_ = true;
                 ASSERT_TRUE(WaitForServerReady());
             }
         }
@@ -225,14 +396,12 @@ namespace
         {
             ConfigureAutomationEnvironment();
             EnsureServerRunning();
+            CleanupFinishedProcess(clientProcess_, clientStarted_);
 
-            if (!clientStarted_)
+            if (!IsProcessRunning(L"FOD-CLIENT.exe"))
             {
-                if (!IsProcessRunning(L"FOD-CLIENT.exe"))
-                {
-                    ASSERT_TRUE(LaunchProcess(L"FOD-CLIENT.exe", clientProcess_));
-                    clientStarted_ = true;
-                }
+                ASSERT_TRUE(LaunchProcess(L"FOD-CLIENT.exe", clientProcess_));
+                clientStarted_ = true;
             }
         }
 
@@ -258,8 +427,25 @@ namespace
             (void)SetEnvironmentVariableW(L"FOD_TEST_PASSWORD", L"pass@123");
         }
 
+        static void CleanupFinishedProcess(PROCESS_INFORMATION& processInfo, bool& started)
+        {
+            if ((processInfo.hProcess != nullptr) && (WaitForSingleObject(processInfo.hProcess, 0) == WAIT_OBJECT_0))
+            {
+                (void)CloseHandle(processInfo.hThread);
+                (void)CloseHandle(processInfo.hProcess);
+                processInfo.hThread = nullptr;
+                processInfo.hProcess = nullptr;
+                started = false;
+            }
+        }
+
         void Stop()
         {
+            if ((clientProcess_.hProcess != nullptr) || (serverProcess_.hProcess != nullptr))
+            {
+                (void)Sleep(10000);
+            }
+
             if (clientProcess_.hProcess != nullptr)
             {
                 (void)TerminateProcess(clientProcess_.hProcess, 0);
@@ -314,26 +500,129 @@ TEST(FODRuntimeRequiredTests, LiveAppDemoWindowsAreVisible)
     (void)Sleep(1000);
 }
 
-TEST(FODRuntimeRequiredTests, RunningServerAcceptsConnectionOnDefaultPort)
+TEST(FODRuntimeRequiredTests, RunningServerAcceptsAuthenticatedClientOnDefaultPort)
 {
     Harness().EnsureServerRunning();
 
     WsaSession wsa;
     ASSERT_TRUE(wsa.ok());
 
-    SOCKET clientSocket = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
-    ASSERT_NE(clientSocket, INVALID_SOCKET);
+    SOCKET clientSocket = INVALID_SOCKET;
+    ASSERT_TRUE(ConnectToLiveServer(clientSocket));
 
-    sockaddr_in serverAddr{};
-    serverAddr.sin_family = AF_INET;
-    serverAddr.sin_port = htons(27015);
-    serverAddr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+    char authResponse = 0x00;
+    ASSERT_TRUE(AuthenticateLiveServer(clientSocket, "admin", "pass@123", authResponse));
+    EXPECT_EQ(authResponse, 0x01);
 
-    const int connectResult = connect(clientSocket, reinterpret_cast<sockaddr*>(&serverAddr), sizeof(serverAddr));
-    EXPECT_NE(connectResult, SOCKET_ERROR);
+    ShutdownAndCloseSocket(clientSocket);
+}
 
-    (void)shutdown(clientSocket, SD_BOTH);
-    (void)closesocket(clientSocket);
+TEST(FODRuntimeRequiredTests, RunningServerAcceptsSecondAuthenticatedClientAfterDisconnect)
+{
+    Harness().EnsureServerRunning();
+
+    WsaSession wsa;
+    ASSERT_TRUE(wsa.ok());
+
+    SOCKET firstSocket = INVALID_SOCKET;
+    ASSERT_TRUE(ConnectToLiveServer(firstSocket));
+    char authResponse = 0x00;
+    ASSERT_TRUE(AuthenticateLiveServer(firstSocket, "admin", "pass@123", authResponse));
+    EXPECT_EQ(authResponse, 0x01);
+    ShutdownAndCloseSocket(firstSocket);
+
+    SOCKET secondSocket = INVALID_SOCKET;
+    ASSERT_TRUE(ConnectToLiveServer(secondSocket));
+    authResponse = 0x00;
+    ASSERT_TRUE(AuthenticateLiveServer(secondSocket, "admin", "pass@123", authResponse));
+    EXPECT_EQ(authResponse, 0x01);
+    ShutdownAndCloseSocket(secondSocket);
+}
+
+TEST(FODRuntimeRequiredTests, RunningServerReturnsClearedStatusForNoDebrisReport)
+{
+    Harness().EnsureServerRunning();
+
+    WsaSession wsa;
+    ASSERT_TRUE(wsa.ok());
+
+    SOCKET clientSocket = INVALID_SOCKET;
+    ASSERT_TRUE(ConnectToLiveServer(clientSocket));
+
+    char authResponse = 0x00;
+    ASSERT_TRUE(AuthenticateLiveServer(clientSocket, "admin", "pass@123", authResponse));
+    ASSERT_EQ(authResponse, 0x01);
+
+    std::string response;
+    int bitmapPacketType = 0;
+    std::vector<char> bitmapBytes;
+    ASSERT_TRUE(SubmitLiveFodReport(clientSocket,
+        FOD_HAZARD_TYPE_DEBRIS,
+        "A1",
+        0,
+        "Tower Demo",
+        "No debris found during inspection.",
+        response,
+        bitmapPacketType,
+        bitmapBytes));
+
+    EXPECT_NE(response.find("Runway Status: CLEARED"), std::string::npos);
+    EXPECT_EQ(bitmapPacketType, 0x05);
+    EXPECT_TRUE(IsBitmapHeaderValid(bitmapBytes));
+
+    ShutdownAndCloseSocket(clientSocket);
+}
+
+TEST(FODRuntimeRequiredTests, RunningServerSendsBitmapForHazardReport)
+{
+    Harness().EnsureServerRunning();
+
+    WsaSession wsa;
+    ASSERT_TRUE(wsa.ok());
+
+    SOCKET clientSocket = INVALID_SOCKET;
+    ASSERT_TRUE(ConnectToLiveServer(clientSocket));
+
+    char authResponse = 0x00;
+    ASSERT_TRUE(AuthenticateLiveServer(clientSocket, "admin", "pass@123", authResponse));
+    ASSERT_EQ(authResponse, 0x01);
+
+    std::string response;
+    int bitmapPacketType = 0;
+    std::vector<char> bitmapBytes;
+    ASSERT_TRUE(SubmitLiveFodReport(clientSocket,
+        FOD_HAZARD_TYPE_DEBRIS,
+        "B2",
+        4,
+        "Tower Demo",
+        "Debris reported near the runway edge.",
+        response,
+        bitmapPacketType,
+        bitmapBytes));
+
+    EXPECT_NE(response.find("Runway Status: HAZARD"), std::string::npos);
+    EXPECT_EQ(bitmapPacketType, 0x05);
+    EXPECT_GT(bitmapBytes.size(), 1024U * 1024U);
+    EXPECT_TRUE(IsBitmapHeaderValid(bitmapBytes));
+
+    ShutdownAndCloseSocket(clientSocket);
+}
+
+TEST(FODRuntimeRequiredTests, ClientLogContainsAuthenticatedSessionEntriesAfterAutomatedRun)
+{
+    Harness().StopClient();
+    const std::wstring logPath = BuildFilePath(L"client_log.txt");
+    (void)DeleteFileW(logPath.c_str());
+
+    Harness().EnsureClientRunning();
+    (void)Sleep(2000);
+    Harness().StopClient();
+
+    const std::string contents = ReadTextFile(logPath);
+    ASSERT_FALSE(contents.empty());
+    EXPECT_NE(contents.find("Session:SESSION_1"), std::string::npos);
+    EXPECT_NE(contents.find("[AUTH] [SENT]"), std::string::npos);
+    EXPECT_NE(contents.find("[AUTH] [RECEIVED] [Session:SESSION_1] ACCEPTED"), std::string::npos);
 }
 
 TEST(FODRuntimeRequiredTests, RunningServerRespondsToInvalidAuthPacket)
@@ -369,4 +658,162 @@ TEST(FODRuntimeRequiredTests, RunningServerRespondsToInvalidAuthPacket)
 
     (void)shutdown(clientSocket, SD_BOTH);
     (void)closesocket(clientSocket);
+}
+
+TEST(FODRuntimeRequiredTests, RunningServerRejectsInvalidCredentials)
+{
+    Harness().EnsureServerRunning();
+
+    WsaSession wsa;
+    ASSERT_TRUE(wsa.ok());
+
+    SOCKET clientSocket = INVALID_SOCKET;
+    ASSERT_TRUE(ConnectToLiveServer(clientSocket));
+
+    char authResponse = 0x01;
+    ASSERT_TRUE(AuthenticateLiveServer(clientSocket, "admin", "wrong-password", authResponse));
+    EXPECT_EQ(authResponse, 0x00);
+
+    ShutdownAndCloseSocket(clientSocket);
+}
+
+TEST(FODRuntimeRequiredTests, RunningServerAcknowledgesHeartbeatPacket)
+{
+    Harness().EnsureServerRunning();
+
+    WsaSession wsa;
+    ASSERT_TRUE(wsa.ok());
+
+    SOCKET clientSocket = INVALID_SOCKET;
+    ASSERT_TRUE(ConnectToLiveServer(clientSocket));
+
+    char authResponse = 0x00;
+    ASSERT_TRUE(AuthenticateLiveServer(clientSocket, "admin", "pass@123", authResponse));
+    ASSERT_EQ(authResponse, 0x01);
+
+    ASSERT_TRUE(SendHeartbeatAndReceiveAck(clientSocket));
+
+    ShutdownAndCloseSocket(clientSocket);
+}
+
+TEST(FODRuntimeRequiredTests, RunningServerRejectsMalformedReportPacketAfterAuth)
+{
+    Harness().EnsureServerRunning();
+
+    WsaSession wsa;
+    ASSERT_TRUE(wsa.ok());
+
+    SOCKET clientSocket = INVALID_SOCKET;
+    ASSERT_TRUE(ConnectToLiveServer(clientSocket));
+
+    char authResponse = 0x00;
+    ASSERT_TRUE(AuthenticateLiveServer(clientSocket, "admin", "pass@123", authResponse));
+    ASSERT_EQ(authResponse, 0x01);
+
+    ASSERT_TRUE(SendMalformedReportPacket(clientSocket));
+
+    char closeProbe = 0;
+    const int received = recv(clientSocket, &closeProbe, 1, 0);
+    EXPECT_LE(received, 0);
+
+    ShutdownAndCloseSocket(clientSocket);
+}
+
+TEST(FODRuntimeRequiredTests, RunningServerProcessesMultipleReportsInSingleSession)
+{
+    Harness().EnsureServerRunning();
+
+    WsaSession wsa;
+    ASSERT_TRUE(wsa.ok());
+
+    SOCKET clientSocket = INVALID_SOCKET;
+    ASSERT_TRUE(ConnectToLiveServer(clientSocket));
+
+    char authResponse = 0x00;
+    ASSERT_TRUE(AuthenticateLiveServer(clientSocket, "admin", "pass@123", authResponse));
+    ASSERT_EQ(authResponse, 0x01);
+
+    std::string responseOne;
+    int bitmapPacketTypeOne = 0;
+    std::vector<char> bitmapOne;
+    ASSERT_TRUE(SubmitLiveFodReport(clientSocket,
+        FOD_HAZARD_TYPE_DEBRIS,
+        "A1",
+        0,
+        "Tower Demo",
+        "Inspection completed, no debris present.",
+        responseOne,
+        bitmapPacketTypeOne,
+        bitmapOne));
+
+    std::string responseTwo;
+    int bitmapPacketTypeTwo = 0;
+    std::vector<char> bitmapTwo;
+    ASSERT_TRUE(SubmitLiveFodReport(clientSocket,
+        FOD_HAZARD_TYPE_LIQUID,
+        "C4",
+        4,
+        "Tower Demo",
+        "Fuel spill reported near taxiway.",
+        responseTwo,
+        bitmapPacketTypeTwo,
+        bitmapTwo));
+
+    EXPECT_NE(responseOne.find("Runway Status: CLEARED"), std::string::npos);
+    EXPECT_NE(responseTwo.find("Runway Status: HAZARD"), std::string::npos);
+    EXPECT_GT(bitmapOne.size(), 1024U * 1024U);
+    EXPECT_GT(bitmapTwo.size(), 1024U * 1024U);
+    EXPECT_TRUE(IsBitmapHeaderValid(bitmapOne));
+    EXPECT_TRUE(IsBitmapHeaderValid(bitmapTwo));
+
+    ShutdownAndCloseSocket(clientSocket);
+}
+
+TEST(FODRuntimeRequiredTests, RunningServerGeneratesDifferentBitmapsForDifferentZones)
+{
+    Harness().EnsureServerRunning();
+
+    WsaSession wsa;
+    ASSERT_TRUE(wsa.ok());
+
+    SOCKET clientSocket = INVALID_SOCKET;
+    ASSERT_TRUE(ConnectToLiveServer(clientSocket));
+
+    char authResponse = 0x00;
+    ASSERT_TRUE(AuthenticateLiveServer(clientSocket, "admin", "pass@123", authResponse));
+    ASSERT_EQ(authResponse, 0x01);
+
+    std::string responseA;
+    int bitmapPacketTypeA = 0;
+    std::vector<char> bitmapA;
+    ASSERT_TRUE(SubmitLiveFodReport(clientSocket,
+        FOD_HAZARD_TYPE_DEBRIS,
+        "A1",
+        4,
+        "Tower Demo",
+        "Debris at zone A1.",
+        responseA,
+        bitmapPacketTypeA,
+        bitmapA));
+
+    std::string responseB;
+    int bitmapPacketTypeB = 0;
+    std::vector<char> bitmapB;
+    ASSERT_TRUE(SubmitLiveFodReport(clientSocket,
+        FOD_HAZARD_TYPE_DEBRIS,
+        "B2",
+        4,
+        "Tower Demo",
+        "Debris at zone B2.",
+        responseB,
+        bitmapPacketTypeB,
+        bitmapB));
+
+    EXPECT_EQ(bitmapPacketTypeA, 0x05);
+    EXPECT_EQ(bitmapPacketTypeB, 0x05);
+    EXPECT_TRUE(IsBitmapHeaderValid(bitmapA));
+    EXPECT_TRUE(IsBitmapHeaderValid(bitmapB));
+    EXPECT_NE(bitmapA, bitmapB);
+
+    ShutdownAndCloseSocket(clientSocket);
 }
